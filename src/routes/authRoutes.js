@@ -2,14 +2,19 @@
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
 
-
 import {
     registerUser,
     verifyEmail,
     resendVerification,
     loginUser,
+    refreshAccessToken,
+    logoutUser,
+    getMe,
+    forgotPassword,
+    resetPassword,
 } from "../controllers/authController.js";
 
+import { protect } from "../middlewares/authMiddleware.js";
 
 const router = Router();
 
@@ -32,7 +37,9 @@ const resendLimiter = rateLimit({
 });
 
 router.post("/register", authLimiter, registerUser);
+
 router.post("/verify-email", authLimiter, verifyEmail);
+
 router.post(
     "/resend-verification",
     resendLimiter,
@@ -40,5 +47,42 @@ router.post(
 );
 
 router.post("/login", authLimiter, loginUser);
+
+router.post(
+    "/refresh-token",
+    authLimiter,
+    refreshAccessToken
+);
+
+router.post("/logout", authLimiter, logoutUser);
+
+router.get("/me", protect, getMe);
+
+
+
+
+const passwordResetLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 5,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    message: {
+        success: false,
+        message: "Too many attempts. Try again later.",
+    },
+});
+
+router.post(
+    "/forgot-password",
+    passwordResetLimiter,
+    forgotPassword
+);
+
+router.post(
+    "/reset-password",
+    passwordResetLimiter,
+    resetPassword
+);
+
 
 export default router;

@@ -29,3 +29,35 @@ This link expires in 15 minutes.
 If you did not create this account, ignore this email.`,
     });
 };
+
+
+
+
+export const sendPasswordResetEmail = async (
+    email,
+    token
+) => {
+    const resetUrl =
+        `${process.env.CLIENT_URL}/reset-password?token=${encodeURIComponent(token)}`;
+
+    await transporter.sendMail({
+        from: process.env.EMAIL_FROM,
+        to: email,
+        subject: "Reset Your Password - Expert IT Solutions",
+        text: `Hello,
+
+We received a request to reset your password.
+
+Open this link to set a new password:
+
+${resetUrl}
+
+This link will expire in 15 minutes.
+
+If you did not request a password reset,
+you can safely ignore this email.
+
+Expert IT Solutions`,
+    });
+};
+

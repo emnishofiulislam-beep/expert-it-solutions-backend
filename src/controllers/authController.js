@@ -12,6 +12,36 @@ import { loginSchema } from "../validators/authValidator.js";
 import { generateAccessToken } from "../utils/generateToken.js";
 
 
+import RefreshToken from "../models/RefreshToken.js";
+
+import {
+    generateRefreshToken,
+    hashRefreshToken,
+    getRefreshExpiry,
+    setRefreshCookie,
+    clearRefreshCookie,
+} from "../utils/refreshToken.js";
+
+
+
+
+import {
+    forgotPasswordSchema,
+    resetPasswordSchema,
+} from "../validators/authValidator.js";
+
+import {
+    generatePasswordResetToken,
+    hashPasswordResetToken,
+} from "../utils/passwordResetToken.js";
+
+import {
+    sendPasswordResetEmail,
+} from "../services/emailService.js";
+
+
+
+
 export const registerUser = async (req, res, next) => {
     try {
         const result = registerSchema.safeParse(req.body);
@@ -199,9 +229,9 @@ export const resendVerification = async (req, res, next) => {
 
 
 
+
 export const loginUser = async (req, res, next) => {
     try {
-        // Step 1: Validate input
         const result = loginSchema.safeParse(req.body);
 
         if (!result.success) {
@@ -214,7 +244,6 @@ export const loginUser = async (req, res, next) => {
 
         const { email, password } = result.data;
 
-        // Step 2: Find user with password
         const user = await User.findOne({ email }).select(
             "+password"
         );
@@ -226,10 +255,8 @@ export const loginUser = async (req, res, next) => {
             });
         }
 
-        // Step 3: Compare hashed password
-        const isPasswordValid = await user.comparePassword(
-            password
-        );
+        const isPasswordValid =
+            await user.comparePassword(password);
 
         if (!isPasswordValid) {
             return res.status(401).json({
@@ -238,7 +265,6 @@ export const loginUser = async (req, res, next) => {
             });
         }
 
-        // Step 4: Check email verification
         if (!user.isVerified) {
             return res.status(403).json({
                 success: false,
@@ -247,10 +273,17 @@ export const loginUser = async (req, res, next) => {
             });
         }
 
-        // Step 5: Generate access token
         const accessToken = generateAccessToken(user);
+        const refreshToken = generateRefreshToken();
 
-        // Step 6: Send response
+        await RefreshToken.create({
+            user: user._id,
+            tokenHash: hashRefreshToken(refreshToken),
+            expiresAt: getRefreshExpiry(),
+        });
+
+        setRefreshCookie(res, refreshToken);
+
         return res.status(200).json({
             success: true,
             message: "Login successful",
@@ -265,4 +298,276 @@ export const loginUser = async (req, res, next) => {
         next(error);
     }
 };
+
+
+
+
+// REFRESH ACCESS TOKEN
+export const refreshAccessToken = async (
+    req,
+    res,
+    next
+) => {
+    try {
+        const oldToken = req.cookies?.refreshToken;
+
+        if (
+            typeof oldToken !== "string" ||
+            !/^[a-f0-9]{96}$/.test(oldToken)
+        ) {
+            return res.status(401).json({
+                success: false,
+                message: "Refresh token required",
+            });
+        }
+
+        const newToken = generateRefreshToken();
+        const newExpiry = getRefreshExpiry();
+
+        // Atomically rotate the refresh token.
+        const session = await RefreshToken.findOneAndUpdate(
+            {
+                tokenHash: hashRefreshToken(oldToken),
+                expiresAt: { $gt: new Date() },
+            },
+            {
+                $set: {
+                    tokenHash: hashRefreshToken(newToken),
+                    expiresAt: newExpiry,
+                },
+            },
+            { new: true }
+        );
+
+        if (!session) {
+            clearRefreshCookie(res);
+
+            return res.status(401).json({
+                success: false,
+                message: "Invalid or expired refresh token",
+            });
+        }
+
+        const user = await User.findById(session.user);
+
+        if (!user || !user.isVerified) {
+            await RefreshToken.deleteOne({
+                _id: session._id,
+            });
+
+            clearRefreshCookie(res);
+
+            return res.status(401).json({
+                success: false,
+                message: "Account unavailable",
+            });
+        }
+
+        const accessToken = generateAccessToken(user);
+
+        setRefreshCookie(res, newToken);
+
+        return res.status(200).json({
+            success: true,
+            message: "Token refreshed successfully",
+            data: {
+                accessToken,
+                tokenType: "Bearer",
+                expiresIn: 900,
+            },
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// LOGOUT CURRENT SESSION
+export const logoutUser = async (req, res, next) => {
+    try {
+        const token = req.cookies?.refreshToken;
+
+        if (
+            typeof token === "string" &&
+            /^[a-f0-9]{96}$/.test(token)
+        ) {
+            await RefreshToken.deleteOne({
+                tokenHash: hashRefreshToken(token),
+            });
+        }
+
+        clearRefreshCookie(res);
+
+        return res.status(200).json({
+            success: true,
+            message: "Logout successful",
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// GET CURRENT USER PROFILE
+export const getMe = async (req, res, next) => {
+    try {
+        return res.status(200).json({
+            success: true,
+            data: {
+                user: req.user.toJSON(),
+            },
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+
+
+
+
+
+
+
+
+
+
+export const forgotPassword = async (req, res, next) => {
+    try {
+        const result = forgotPasswordSchema.safeParse(
+            req.body
+        );
+
+        if (!result.success) {
+            return res.status(400).json({
+                success: false,
+                message: "Valid email is required",
+            });
+        }
+
+        const { email } = result.data;
+
+        const genericMessage =
+            "If an account exists, a password reset email will be sent.";
+
+        const user = await User.findOne({ email });
+
+        if (user) {
+            const { token, tokenHash, expires } =
+                generatePasswordResetToken();
+
+            await User.updateOne(
+                { _id: user._id },
+                {
+                    $set: {
+                        resetPasswordTokenHash: tokenHash,
+                        resetPasswordExpires: expires,
+                    },
+                }
+            );
+
+            try {
+                await sendPasswordResetEmail(email, token);
+            } catch (mailError) {
+                console.error(
+                    "Password reset email failed:",
+                    mailError
+                );
+            }
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: genericMessage,
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+
+
+
+
+
+
+
+export const resetPassword = async (req, res, next) => {
+    try {
+        const result = resetPasswordSchema.safeParse(
+            req.body
+        );
+
+        if (!result.success) {
+            return res.status(400).json({
+                success: false,
+                message: "Validation failed",
+                errors: result.error.flatten(),
+            });
+        }
+
+        const { token, password } = result.data;
+
+        const tokenHash = hashPasswordResetToken(token);
+
+        const user = await User.findOne({
+            resetPasswordTokenHash: tokenHash,
+            resetPasswordExpires: { $gt: new Date() },
+        }).select(
+            "+resetPasswordTokenHash +resetPasswordExpires"
+        );
+
+        if (!user) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid or expired reset token",
+            });
+        }
+
+        // Atomically consume the reset token.
+        const consumed = await User.findOneAndUpdate(
+            {
+                _id: user._id,
+                resetPasswordTokenHash: tokenHash,
+                resetPasswordExpires: { $gt: new Date() },
+            },
+            {
+                $unset: {
+                    resetPasswordTokenHash: "",
+                    resetPasswordExpires: "",
+                },
+            },
+            { new: true }
+        );
+
+        if (!consumed) {
+            return res.status(400).json({
+                success: false,
+                message: "Reset token already used or expired",
+            });
+        }
+
+        // Save triggers the bcrypt password hashing hook.
+        consumed.password = password;
+        consumed.passwordChangedAt = new Date();
+
+        await consumed.save();
+
+        // Revoke all existing refresh sessions.
+        await RefreshToken.deleteMany({
+            user: consumed._id,
+        });
+
+        clearRefreshCookie(res);
+
+        return res.status(200).json({
+            success: true,
+            message:
+                "Password reset successful. Please login again.",
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+
+
 
