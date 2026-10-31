@@ -83,6 +83,13 @@ const userSchema = new mongoose.Schema(
             select: false,
         },
 
+        company: {
+            type: String,
+            trim: true,
+            maxlength: 150,
+            default: "",
+        },
+
         passwordChangedAt: {
             type: Date,
         },

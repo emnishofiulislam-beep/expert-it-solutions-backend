@@ -14,6 +14,11 @@ import {
     resetPassword,
 } from "../controllers/authController.js";
 
+import {
+    updateProfile,
+    changePassword,
+} from "../controllers/profileController.js";
+
 import { protect } from "../middlewares/authMiddleware.js";
 
 const router = Router();
@@ -63,7 +68,7 @@ router.get("/me", protect, getMe);
 
 const passwordResetLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    limit: 5,
+    limit: 50,
     standardHeaders: "draft-8",
     legacyHeaders: false,
     message: {
@@ -82,6 +87,17 @@ router.post(
     "/reset-password",
     passwordResetLimiter,
     resetPassword
+);
+
+
+
+router.patch("/profile", protect, updateProfile);
+
+router.patch(
+    "/change-password",
+    authLimiter,
+    protect,
+    changePassword
 );
 
 
