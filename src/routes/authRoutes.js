@@ -25,7 +25,7 @@ const router = Router();
 
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    limit: 10,
+    limit: 100,
     standardHeaders: "draft-8",
     legacyHeaders: false,
     message: {
@@ -36,7 +36,7 @@ const authLimiter = rateLimit({
 
 const resendLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    limit: 3,
+    limit: 30,
     standardHeaders: "draft-8",
     legacyHeaders: false,
 });

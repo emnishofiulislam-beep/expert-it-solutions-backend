@@ -407,8 +407,11 @@ export const logoutUser = async (req, res, next) => {
 };
 
 // GET CURRENT USER PROFILE
+
 export const getMe = async (req, res, next) => {
     try {
+        res.set("Cache-Control", "no-store");
+
         return res.status(200).json({
             success: true,
             data: {
@@ -419,6 +422,7 @@ export const getMe = async (req, res, next) => {
         next(error);
     }
 };
+
 
 
 
