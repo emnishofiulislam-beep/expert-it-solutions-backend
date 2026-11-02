@@ -1,10 +1,11 @@
-
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
 
 import authRoutes from "./routes/authRoutes.js";
+import productRoutes from "./routes/productRoutes.js";
+
 import { errorHandler } from "./middlewares/errorMiddleware.js";
 
 const app = express();
@@ -30,6 +31,7 @@ app.get("/api/v1/health", (req, res) => {
 });
 
 app.use("/api/v1/auth", authRoutes);
+app.use("/api/v1/products", productRoutes);
 
 app.use((req, res) => {
     res.status(404).json({
